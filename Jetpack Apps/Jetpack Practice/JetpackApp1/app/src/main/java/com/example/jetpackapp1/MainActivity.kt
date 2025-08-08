@@ -39,7 +39,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             JetpackApp1Theme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Test()
+                   // Test()
+                    state()
                 }
             }
         }
