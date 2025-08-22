@@ -1,5 +1,7 @@
 package com.example.newsapp1
 
+import com.example.newsapp1.network.ApiService
+import com.example.newsapp1.utlis.BASE_URL
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
