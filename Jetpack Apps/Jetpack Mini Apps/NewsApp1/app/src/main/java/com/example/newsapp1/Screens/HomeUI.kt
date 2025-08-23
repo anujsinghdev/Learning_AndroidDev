@@ -16,10 +16,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.rememberAsyncImagePainter
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.size.Size
 import com.example.newsapp1.MyViewModel.MyViewModel
 import com.example.newsapp1.models.Article
 import java.text.SimpleDateFormat
@@ -28,7 +31,10 @@ import java.util.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeUI(viewModel: MyViewModel) {
-    val response = viewModel.response.value?.articles ?: emptyList()
+    // Use remember to avoid recreating the list on recomposition
+    val response = remember(viewModel.response.value) {
+        viewModel.response.value?.articles ?: emptyList()
+    }
 
     Column(
         modifier = Modifier
@@ -56,7 +62,11 @@ fun HomeUI(viewModel: MyViewModel) {
             ),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(response) { article ->
+            // Use unique keys for better performance
+            items(
+                items = response,
+                key = { article -> article.url ?: article.title.hashCode() }
+            ) { article ->
                 ArticleCard(
                     article = article,
                     onArticleClick = { /* Handle article click */ },
@@ -81,7 +91,12 @@ fun ArticleCard(
     onShareClick: () -> Unit = {},
     onBookmarkClick: () -> Unit = {}
 ) {
-    var isBookmarked by remember { mutableStateOf(false) }
+    var isBookmarked by remember(article.url) { mutableStateOf(false) }
+
+    // Remember formatted date to avoid recalculating
+    val formattedDate = remember(article.publishedAt) {
+        article.publishedAt?.let { formatDate(it) } ?: "Unknown date"
+    }
 
     Card(
         modifier = Modifier
@@ -99,16 +114,22 @@ fun ArticleCard(
         Column(
             modifier = Modifier.fillMaxWidth()
         ) {
-            // Image Section
+            // Optimized Image Section
             article.urlToImage?.let { imageUrl ->
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(200.dp)
                 ) {
-                    val painter = rememberAsyncImagePainter(model = imageUrl)
-                    Image(
-                        painter = painter,
+                    // Use AsyncImage with optimizations
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(imageUrl)
+                            .size(Size.ORIGINAL) // Let Coil determine optimal size
+                            .crossfade(true) // Smooth transition
+                            .memoryCacheKey(imageUrl) // Custom cache key
+                            .diskCacheKey(imageUrl)
+                            .build(),
                         contentDescription = "Image for ${article.title}",
                         modifier = Modifier
                             .fillMaxSize()
@@ -116,7 +137,7 @@ fun ArticleCard(
                         contentScale = ContentScale.Crop
                     )
 
-                    // Gradient overlay for better text readability
+                    // Lighter gradient overlay
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -124,7 +145,7 @@ fun ArticleCard(
                                 brush = androidx.compose.ui.graphics.Brush.verticalGradient(
                                     colors = listOf(
                                         Color.Transparent,
-                                        Color.Black.copy(alpha = 0.3f)
+                                        Color.Black.copy(alpha = 0.2f) // Reduced opacity
                                     )
                                 )
                             )
@@ -150,10 +171,10 @@ fun ArticleCard(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Description
-                article.description?.let { description ->
+                // Description - Only show if not null and not empty
+                if (!article.description.isNullOrBlank()) {
                     Text(
-                        text = description,
+                        text = article.description,
                         style = MaterialTheme.typography.bodyMedium,
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis,
@@ -172,16 +193,16 @@ fun ArticleCard(
                     Column(
                         modifier = Modifier.weight(1f)
                     ) {
-                        article.author?.let { author ->
+                        if (!article.author.isNullOrBlank()) {
                             Text(
-                                text = "By $author",
+                                text = "By ${article.author}",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Medium,
                                 color = MaterialTheme.colorScheme.primary
                             )
                         }
 
-                        article.publishedAt?.let { publishedAt ->
+                        if (article.publishedAt != null) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -193,7 +214,7 @@ fun ArticleCard(
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = formatDate(publishedAt),
+                                    text = formattedDate,
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -233,19 +254,21 @@ fun ArticleCard(
                     }
                 }
 
-                // Source Badge (if available)
+                // Source Badge
                 article.source?.name?.let { sourceName ->
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer
-                    ) {
-                        Text(
-                            text = sourceName,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
+                    if (sourceName.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Text(
+                                text = sourceName,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
                     }
                 }
             }
@@ -253,13 +276,14 @@ fun ArticleCard(
     }
 }
 
-// Helper function to format date
+// Optimized date formatter - create once and reuse
+private val dateFormatter = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.getDefault())
+private val displayFormatter = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
+
 private fun formatDate(dateString: String): String {
     return try {
-        val inputFormatter = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.getDefault())
-        val outputFormatter = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
-        val date = inputFormatter.parse(dateString)
-        date?.let { outputFormatter.format(it) } ?: "Unknown date"
+        val date = dateFormatter.parse(dateString)
+        date?.let { displayFormatter.format(it) } ?: "Unknown date"
     } catch (e: Exception) {
         "Unknown date"
     }
